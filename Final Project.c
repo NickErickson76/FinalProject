@@ -37,8 +37,8 @@ void ports(void);
 
 
 //Interrupt Function
-void motor_button_init(void);
-void PORT1_IRQHandler(void);
+void Alarm_Button_Init(void);
+void PORT3_IRQHandler(void);
 
 void configRTC(void);
 
@@ -59,12 +59,13 @@ uint8_t ahour;
 uint8_t RTC_flag = 0;
 
 volatile uint32_t timeout ;
+char alarmStat[30] = "Off";
+int ALARM = 0;
 
 void main(void)
 {
     char time[30];
     char alarm[30];
-    char alarmStat[30] = "Off";
     char AMPM = 'A';
     char aAMPM = 'A';
     alrm.asec = 0;
@@ -76,10 +77,10 @@ void main(void)
     SysTick_initialization();
     lcdInit();  // Initialize the LCD
     __disable_irq();//disable all interrupts during set-up
-    motor_button_init();//call button interrupt set-up
+    Alarm_Button_Init();//call button interrupt set-up
     configRTC();
     NVIC_EnableIRQ(RTC_C_IRQn);
-    NVIC_EnableIRQ(PORT1_IRQn);//interrupts are on port 1
+    NVIC_EnableIRQ(PORT3_IRQn);//interrupts are on port 1
     __enable_irq();//enable interrupts after set up
 
      lcdClear();
@@ -88,29 +89,29 @@ void main(void)
      while (1)
       {
 
-      if (RTC_flag)
-      {
-          if(now.hour >= 13)
-          {
-              AMPM = 'P';
-          }
-         else
-          {
-              AMPM = 'A';
-          }
-          RTC_flag = 0;
+         if (RTC_flag)
+              {
+                  if(now.hour >= 13)
+                  {
+                      AMPM = 'P';
+                  }
+                 else
+                  {
+                      AMPM = 'A';
+                  }
+                  RTC_flag = 0;
+              }
+
+              sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
+              sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
+              lcdSetText(time, 3, 0);
+              lcdSetText("Alarm", 2, 1);
+              lcdSetText(alarmStat, 8, 1);
+              lcdSetText(alarm, 4, 2);
+
+
+
       }
-
-      sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
-      sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
-      lcdSetText(time, 3, 0);
-      lcdSetText("Alarm", 2, 1);
-      lcdSetText(alarmStat, 9, 1);
-      lcdSetText(alarm, 4, 2);
-      }
-
-
-
 
 }
 
@@ -143,26 +144,63 @@ void ports(void)
 
 
 
-void motor_button_init()//function to initialize motor button pin & interrupt
+void Alarm_Button_Init()//function to initialize motor button pin & interrupt
 {
-    P1 -> SEL0 &= ~BIT7;//GPIO set-up
-    P1 -> SEL1 &= ~BIT7;
-    P1 -> DIR |= BIT7;//input
-    P1 -> REN |= BIT7;//enable resistor
-    P1 -> OUT |= BIT7;//input defaults to '1'
-    P1 -> IES |= BIT7;//P1.6 interrupt triggers when it goes from high to low
-    P1 -> IE |= BIT7;//set interrupt on P1.7
-    P1 -> IFG &= ~BIT7;//clear flag
+    P3 -> SEL0 &= ~(BIT0 | BIT5 | BIT6 | BIT7);//GPIO set-up
+    P3 -> SEL1 &= ~(BIT0 | BIT5 | BIT6 | BIT7);
+    P3 -> DIR |= (BIT0 | BIT5 | BIT6 | BIT7);//input
+    P3 -> REN |= (BIT0 | BIT5 | BIT6 | BIT7);//enable resistor
+    P3 -> OUT |= (BIT0 | BIT5 | BIT6 | BIT7);//input defaults to '1'
+    P3 -> IES |= (BIT0 | BIT5 | BIT6 | BIT7);//P1.6 interrupt triggers when it goes from high to low
+    P3 -> IE |= (BIT0 | BIT5 | BIT6 | BIT7);//set interrupt on P1.7
+    P3 -> IFG &= ~(BIT0 | BIT5 | BIT6 | BIT7);//clear flag
 }
 
-void PORT1_IRQHandler(void)//interrupt function definition
+void PORT3_IRQHandler(void)//interrupt function definition
 {
 
-    if(P1 -> IFG & BIT7)//conditional to check if button on P1.6 has been pressed
+    if(P3 -> IFG & BIT0)//conditional to check if button on P1.6 has been pressed
     {
+        printf("SET Alarm\n");
         delay_ms(50);
-        P1 -> IFG &= ~BIT7;//clear flag
+        P3 -> IFG &= ~BIT0;//clear flag
     }
+    if(P3 -> IFG & BIT5)//conditional to check if button on P1.6 has been pressed
+       {
+            printf("SET TIME\n");
+           delay_ms(50);
+           P3 -> IFG &= ~BIT5;//clear flag
+       }
+    if(P3 -> IFG & BIT6)//conditional to check if button on P1.6 has been pressed
+    {
+        printf("ON/OFF/UP\n");
+        if(alarmStat[1] == 'f')
+        {
+            alarmStat[0] = 'O';
+            alarmStat[1] = 'n';
+            alarmStat[2] = '\0';
+            lcdClear();
+        }
+        if(alarmStat[1] == 'n')
+        {
+            alarmStat[0] = 'O';
+            alarmStat[0] = 'f';
+            alarmStat[0] = 'f';
+            lcdClear();
+        }
+        delay_ms(50);
+        P3 -> IFG &= ~BIT6;//clear flag
+    }
+    if(P3 -> IFG & BIT7)//conditional to check if button on P1.6 has been pressed
+       {
+            printf("SNOOZE/DOWN\n");
+            if(ALARM)
+                    {
+                        alarmStat[30] = "Snooze";
+                    }
+           delay_ms(50);
+           P3 -> IFG &= ~BIT7;//clear flag
+       }
 }
 
 
