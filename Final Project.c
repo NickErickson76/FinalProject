@@ -18,7 +18,9 @@
 #define RS      BIT5      //Pin  P4.5    on any PORT
 #define DATA    0x0F      //pins P4.0-3  on any PORT
 #define CLEAR   0x01
-
+#define OFF     1
+#define ON      2
+#define SNOOZE  3
 #define Lower_Nibble(x)   P4->OUT = (P4->OUT & 0xF0) + (x & 0x0F)        // This macro if PORT(x) uses the lower 4 pins
 
 
@@ -59,8 +61,8 @@ uint8_t ahour;
 uint8_t RTC_flag = 0;
 
 volatile uint32_t timeout ;
-char alarmStat[30] = "Off";
 int ALARM = 0;
+volatile int ONOFF = OFF;
 
 void main(void)
 {
@@ -71,7 +73,7 @@ void main(void)
     alrm.asec = 0;
     alrm.amin = 0;
     alrm.ahour = 12;
-
+    int PM = 0;
     ports();    //Initialize ports
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
     SysTick_initialization();
@@ -91,24 +93,35 @@ void main(void)
 
          if (RTC_flag)
               {
-                  if(now.hour >= 13)
+                  if(now.hour >= 13 && PM == 0)
                   {
                       AMPM = 'P';
+                      PM = 1;
                   }
-                 else
+                 if(now.hour >= 13 && PM == 1)
                   {
                       AMPM = 'A';
+                      PM = 0;
                   }
                   RTC_flag = 0;
               }
 
               sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
               sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
-              lcdSetText(time, 3, 0);
-              lcdSetText("Alarm", 2, 1);
-              lcdSetText(alarmStat, 8, 1);
-              lcdSetText(alarm, 4, 2);
 
+              delay_ms(10);
+              lcdSetText(time, 3, 0);
+              delay_ms(10);
+              lcdSetText("Alarm", 2, 1);
+              delay_ms(10);
+              if(ONOFF == OFF)
+              lcdSetText("OFF", 10, 1);
+
+              if(ONOFF == ON)
+              lcdSetText("ON", 10, 1);
+              delay_ms(10);
+              lcdSetText(alarm, 4, 2);
+              delay_ms(10);
 
 
       }
@@ -174,30 +187,27 @@ void PORT3_IRQHandler(void)//interrupt function definition
     if(P3 -> IFG & BIT6)//conditional to check if button on P1.6 has been pressed
     {
         printf("ON/OFF/UP\n");
-        if(alarmStat[1] == 'f')
+        if(ONOFF == OFF)
         {
-            alarmStat[0] = 'O';
-            alarmStat[1] = 'n';
-            alarmStat[2] = '\0';
-            lcdClear();
+            ONOFF = ON;
         }
-        if(alarmStat[1] == 'n')
+        else if(ONOFF == ON)
         {
-            alarmStat[0] = 'O';
-            alarmStat[0] = 'f';
-            alarmStat[0] = 'f';
-            lcdClear();
+            ONOFF = OFF;
         }
+
+        lcdClear();
         delay_ms(50);
+        lcdClear();
         P3 -> IFG &= ~BIT6;//clear flag
     }
     if(P3 -> IFG & BIT7)//conditional to check if button on P1.6 has been pressed
        {
             printf("SNOOZE/DOWN\n");
             if(ALARM)
-                    {
-                        alarmStat[30] = "Snooze";
-                    }
+            {
+
+            }
            delay_ms(50);
            P3 -> IFG &= ~BIT7;//clear flag
        }
