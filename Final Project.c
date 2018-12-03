@@ -52,9 +52,15 @@ uint8_t sec;
 uint8_t min;
 uint8_t hour;
 } now;
+
 struct
 {
-uint8_t asec;
+    uint8_t smin;
+    uint8_t shour;
+} set;
+
+struct
+{
 uint8_t amin;
 uint8_t ahour;
 } alrm;
@@ -64,16 +70,42 @@ volatile uint32_t timeout ;
 int ALARM = 0;
 volatile int ONOFF = OFF;
 
+enum states{           // Names the states
+    CLOCK,
+    ALARMSET,
+    TIMESET
+};
+
+enum astates{
+    aOFF,
+    alHOUR,
+    alMIN
+};
+enum tstates{
+    tOFF,
+    tHOUR,
+    tMIN
+};
+
+enum states state = CLOCK;
+enum astates atime = aOFF;
+enum tstates t_time = tOFF;
+int PM = 0;
+int aPM = 0;
+char aAMPM = 'A';
+char AMPM = 'A';
+
 void main(void)
 {
+
     char time[30];
     char alarm[30];
-    char AMPM = 'A';
-    char aAMPM = 'A';
-    alrm.asec = 0;
+
+
+
     alrm.amin = 0;
-    alrm.ahour = 12;
-    int PM = 0;
+    alrm.ahour = 5;
+
     ports();    //Initialize ports
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
     SysTick_initialization();
@@ -90,42 +122,90 @@ void main(void)
 
      while (1)
       {
-
+         switch(state){
+         case CLOCK:
          if (RTC_flag)
               {
                   if(now.hour >= 13 && PM == 0)
                   {
+                      now.hour = 1;
                       AMPM = 'P';
                       PM = 1;
                   }
                  if(now.hour >= 13 && PM == 1)
                   {
+                      now.hour = 1;
                       AMPM = 'A';
                       PM = 0;
                   }
                   RTC_flag = 0;
               }
 
+             if(now.hour == alrm.ahour && now.min == alrm.amin && PM == aPM && (ONOFF == ON || ONOFF == SNOOZE))
+             {
+                 ALARM = 1;
+             }
+
+
               sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
               sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
 
-              delay_ms(10);
+
               lcdSetText(time, 3, 0);
-              delay_ms(10);
+              delay_ms(30);
               lcdSetText("Alarm", 2, 1);
-              delay_ms(10);
+              delay_ms(30);
+
               if(ONOFF == OFF)
               lcdSetText("OFF", 10, 1);
 
               if(ONOFF == ON)
               lcdSetText("ON", 10, 1);
-              delay_ms(10);
+
+              if(ONOFF == SNOOZE)
+              lcdSetText("SNOOZE", 10, 1);
+
+              delay_ms(50);
               lcdSetText(alarm, 4, 2);
-              delay_ms(10);
+              delay_ms(30);
+             break;
 
+         case ALARMSET:
 
+            sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
+
+            delay_ms(10);
+            if(atime == alHOUR)
+                       {
+                           lcdSetText("Set Alarm Hour", 1, 1);
+                       }
+            if(atime == alMIN)
+                       {
+                           lcdSetText("Set Alarm Min", 1, 1);
+                       }
+            delay_ms(50);
+            lcdSetText(alarm, 4, 2);
+            delay_ms(50);
+
+             break;
+         case TIMESET:
+             delay_ms(10);
+             sprintf(time, "%d:%02d %cM",set.shour, set.smin, AMPM);
+             if(t_time == tHOUR)
+             {
+                       lcdSetText("Set Time Hour", 1, 1);
+             }
+             if(t_time == tMIN)
+             {
+                       lcdSetText("Set Time Min", 1, 1);
+             }
+             delay_ms(50);
+             lcdSetText(time, 4, 2);
+             delay_ms(50);
+
+             break;
       }
-
+      }
 }
 
 void configRTC(void)
@@ -133,7 +213,7 @@ void configRTC(void)
  RTC_C->CTL0 = 0xA510; //Write Code, IE on RTC Ready
  RTC_C->CTL13 = 0x0000;
  RTC_C->TIM0 = 59<<8 | 00;
- RTC_C->TIM1 = 2<<8 | 12;
+ RTC_C->TIM1 = 2<<8 | 4;
 
 }
 
@@ -172,21 +252,68 @@ void Alarm_Button_Init()//function to initialize motor button pin & interrupt
 void PORT3_IRQHandler(void)//interrupt function definition
 {
 
-    if(P3 -> IFG & BIT0)//conditional to check if button on P1.6 has been pressed
+    if(P3 -> IFG & BIT0) //Interrupt for setting the alarm time
     {
+
+        lcdClear();
         printf("SET Alarm\n");
+        state = ALARMSET;
+        if(atime == aOFF)
+        {
+            atime = alHOUR;
+            lcdClear();
+        }
+        else if(atime == alHOUR)
+        {
+            atime = alMIN;
+            lcdClear();
+        }
+        else if(atime == alMIN)
+        {
+            atime = aOFF;
+            state = CLOCK;
+            lcdClear();
+        }
         delay_ms(50);
         P3 -> IFG &= ~BIT0;//clear flag
     }
-    if(P3 -> IFG & BIT5)//conditional to check if button on P1.6 has been pressed
+    if(P3 -> IFG & BIT5) // Interrupt for setting the time
        {
+            set.smin = now.min;
+            set.shour = now.hour;
+            lcdClear();
             printf("SET TIME\n");
-           delay_ms(50);
+            state = TIMESET;
+            if(t_time == tOFF)
+                   {
+                       t_time = tHOUR;
+                       lcdClear();
+                   }
+                   else if(t_time == tHOUR)
+                   {
+                       t_time = tMIN;
+                       lcdClear();
+                   }
+                   else if(t_time == tMIN)
+                   {
+                       now.min = set.smin;
+                       now.hour = set.shour;
+                       t_time = tOFF;
+                       state = CLOCK;
+                       lcdClear();
+                   }
+                   delay_ms(50);
            P3 -> IFG &= ~BIT5;//clear flag
        }
+
     if(P3 -> IFG & BIT6)//conditional to check if button on P1.6 has been pressed
     {
+        lcdClear();
         printf("ON/OFF/UP\n");
+        if(state == CLOCK)
+        {
+
+
         if(ONOFF == OFF)
         {
             ONOFF = ON;
@@ -194,6 +321,67 @@ void PORT3_IRQHandler(void)//interrupt function definition
         else if(ONOFF == ON)
         {
             ONOFF = OFF;
+        }
+        }
+
+        if(state == ALARMSET)
+        {
+            if(atime == alHOUR)
+            {
+                alrm.ahour++;
+                if(alrm.ahour >= 13 && aPM == 0)
+                {
+                    aPM = 1;
+                    aAMPM = 'P';
+                    alrm.ahour = 1;
+                }
+                if(alrm.ahour >= 13 && aPM == 1)
+                {
+                    aPM = 0;
+                    aAMPM = 'A';
+                    alrm.ahour = 1;
+                }
+            }
+
+            else if(atime == alMIN)
+            {
+                alrm.amin++;
+                if(alrm.amin >= 59)
+                {
+                    alrm.amin = 0;
+                }
+            }
+
+        }
+
+        if(state == TIMESET)
+        {
+                        if(t_time == tHOUR)
+                        {
+                            set.shour++;
+                            if(set.shour >= 13 && PM == 0)
+                            {
+                                PM = 1;
+                                AMPM = 'P';
+                                set.shour = 1;
+                            }
+                            if(set.shour >= 13 && PM == 1)
+                            {
+                                PM = 0;
+                                AMPM = 'A';
+                                set.shour = 1;
+                            }
+                        }
+                        else if(t_time == tMIN)
+                        {
+                            set.smin++;
+                            if(set.smin >= 59)
+                            {
+                                set.smin = 0;
+                            }
+                        }
+
+
         }
 
         lcdClear();
@@ -204,13 +392,73 @@ void PORT3_IRQHandler(void)//interrupt function definition
     if(P3 -> IFG & BIT7)//conditional to check if button on P1.6 has been pressed
        {
             printf("SNOOZE/DOWN\n");
-            if(ALARM)
-            {
 
+                if(state == ALARMSET)
+                 {
+                     if(atime == alHOUR)
+                     {
+                         alrm.ahour--;
+                         if(alrm.ahour <= 1 && aPM == 0)
+                         {
+                             aPM = 1;
+                             aAMPM = 'P';
+                             alrm.ahour = 12;
+                         }
+                         if(alrm.ahour <= 1 && aPM == 1)
+                         {
+                             aPM = 0;
+                             aAMPM = 'A';
+                             alrm.ahour = 12;
+                         }
+                     }
+                     else if(atime == alMIN)
+                     {
+                         alrm.amin = alrm.amin - 1;
+                         if(alrm.amin <= 0)
+                         {
+                             alrm.amin = 59;
+                         }
+                     }
             }
+                if(state == TIMESET)
+                                 {
+                                     if(t_time == tHOUR)
+                                     {
+                                         set.shour--;
+                                         if(set.shour <= 1 && PM == 0)
+                                         {
+                                             PM = 1;
+                                             AMPM = 'P';
+                                             set.shour = 12;
+                                         }
+                                         if(set.shour <= 1 && PM == 1)
+                                         {
+                                             PM = 0;
+                                             AMPM = 'A';
+                                             set.shour = 12;
+                                         }
+                                     }
+                                     else if(t_time == tMIN)
+                                     {
+                                         set.smin--;
+                                         if(set.smin <= 0)
+                                         {
+                                             set.smin = 59;
+                                         }
+                                     }
+                            }
+
+                if(ALARM == 1)
+                {
+                    ALARM = 0;
+                    ONOFF = SNOOZE;
+                    alrm.amin = alrm.amin + 10;
+                }
+
            delay_ms(50);
            P3 -> IFG &= ~BIT7;//clear flag
        }
+
 }
 
 
@@ -256,7 +504,7 @@ void lcdInit() {
     delay_ms(1);
     lcdWriteCmd(0x06);
     delay_ms(1);
-    lcdWriteCmd(0x0F);  // Make this into 0x0E and the cursor will stay on the screen.
+    lcdWriteCmd(0x0C);  // Make this into 0x0E and the cursor will stay on the screen.
                         // 0x0C is no cursor.
     delay_ms(5);
 }
