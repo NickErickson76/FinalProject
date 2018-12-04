@@ -22,7 +22,29 @@
 #define ON      2
 #define SNOOZE  3
 #define Lower_Nibble(x)   P4->OUT = (P4->OUT & 0xF0) + (x & 0x0F)        // This macro if PORT(x) uses the lower 4 pins
-
+#define C4 261.63
+#define D4 293.66
+#define E4 329.63
+#define F4 349.23
+#define F4SHARP 369.99
+#define G4 392
+#define A4 440
+#define B4 493.88
+#define C5 523.25
+#define D5 587.33
+#define E5 659.25
+#define REST 0
+//Defining the lengths of notes
+#define QUARTER 1000000
+#define QUARTERPLUS 1500000
+#define EIGHTH 500000
+#define HALF 2000000
+#define HALFPLUS 3000000
+#define WHOLE 4000000
+#define BREATH_TIME 50000
+#define MAX_NOTE 100
+#define BUFFER_SIZE 100
+char INPUT_BUFFER[BUFFER_SIZE];
 
 // Systick and LCD Initialization functions
 void SysTick_initialization(void);
@@ -36,15 +58,41 @@ void lcdWriteCmd (unsigned char  cmd);          // Send Commands
 void lcdSetText(char * text, int x, int y);     // Write string
 void lcdSetInt (int val,     int x, int y);     // Write integer
 void ports(void);
-
-
+void play(void);
+void writeOutput(char *string); // write output charactrs to the serial port
+void readInput(char* string); // read input characters from INPUT_BUFFER that are valid
+void setupSerial(void);
 //Interrupt Function
 void Alarm_Button_Init(void);
 void PORT3_IRQHandler(void);
 
+
 void configRTC(void);
+/*
+void SetupTimer32s();
+    int note = 0; //The note in the music sequence we are on
+    int breath = 0; //Take a breath after each note. This creates seperation
+float music_note_sequence[][2] = {
 
+                                   {E4,QUARTER},
+                                   {G4,QUARTER},
+                                   {A4,HALF},
+                                   {REST, BREATH_TIME},
+                                   {E4,QUARTER},
+                                   {G4,QUARTER},
+                                   {B4,EIGHTH},
+                                   {A4,HALF},
+                                   {REST, BREATH_TIME},
+                                   {E4,QUARTER},
+                                   {G4,QUARTER},
+                                   {A4,HALF},
+                                   {G4,QUARTER},
+                                   {E4,HALF},
 
+                                   {REST,WHOLE},
+                                   {REST,WHOLE},
+};
+*/
 // global struct variable called now
 struct
 {
@@ -64,7 +112,10 @@ struct
 uint8_t amin;
 uint8_t ahour;
 } alrm;
+
 uint8_t RTC_flag = 0;
+uint8_t storage_location = 0; // used in the interrupt to store new data
+uint8_t read_location = 0; // used in the main application to read valid data that hasn't been read yet
 
 volatile uint32_t timeout ;
 int ALARM = 0;
@@ -97,33 +148,60 @@ char AMPM = 'A';
 
 void main(void)
 {
-
+    char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
     char time[30];
     char alarm[30];
-
-
+    char uhour[30];
+    char umin[30];
+    char usec[30];
+    P2->DIR |= BIT4;
 
     alrm.amin = 0;
     alrm.ahour = 5;
-
     ports();    //Initialize ports
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
     SysTick_initialization();
     lcdInit();  // Initialize the LCD
     __disable_irq();//disable all interrupts during set-up
+    //SetupTimer32s();
     Alarm_Button_Init();//call button interrupt set-up
+    setupSerial();
     configRTC();
     NVIC_EnableIRQ(RTC_C_IRQn);
-    NVIC_EnableIRQ(PORT3_IRQn);//interrupts are on port 1
+    NVIC_EnableIRQ(PORT3_IRQn);//interrupts are on port 3
     __enable_irq();//enable interrupts after set up
 
      lcdClear();
+     readInput(string);
 
+            if(string[0] != '\0'){
+
+            if(strcmp(string, "SETTIME"))
+                    {
+                     strcpy(uhour, &string[8]);
+                     now.hour = atoi(uhour);
+                     strcpy(umin, &string[10]);
+                     now.min = atoi(umin);
+                     strcpy(usec, &string[12]);
+                     now.sec = atoi(usec);
+                     AMPM = string[14];
+                    }
+            if(strcmp(string, "SETALARM"))
+            {
+                strcpy(uhour, &string[9]);
+                now.hour = atoi(uhour);
+                strcpy(umin, &string[11]);
+                now.min = atoi(umin);
+                aAMPM = string[13];
+            }
+            }
 
      while (1)
       {
          switch(state){
          case CLOCK:
+
+
          if (RTC_flag)
               {
                   if(now.hour >= 13 && PM == 0)
@@ -151,22 +229,22 @@ void main(void)
               sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
 
 
-              lcdSetText(time, 3, 0);
+              lcdSetText(time, 3, 1);
               delay_ms(30);
-              lcdSetText("Alarm", 2, 1);
+              lcdSetText("Alarm", 2, 2);
               delay_ms(30);
 
               if(ONOFF == OFF)
-              lcdSetText("OFF", 10, 1);
+              lcdSetText("OFF", 10, 2);
 
               if(ONOFF == ON)
-              lcdSetText("ON", 10, 1);
+              lcdSetText("ON", 10, 2);
 
               if(ONOFF == SNOOZE)
-              lcdSetText("SNOOZE", 10, 1);
+              lcdSetText("SNOOZE", 10, 2);
 
               delay_ms(50);
-              lcdSetText(alarm, 4, 2);
+              lcdSetText(alarm, 4, 3);
               delay_ms(30);
              break;
 
@@ -212,7 +290,7 @@ void configRTC(void)
 {
  RTC_C->CTL0 = 0xA510; //Write Code, IE on RTC Ready
  RTC_C->CTL13 = 0x0000;
- RTC_C->TIM0 = 59<<8 | 00;
+ RTC_C->TIM0 = 59<<8 | 45;
  RTC_C->TIM1 = 2<<8 | 4;
 
 }
@@ -220,9 +298,11 @@ void configRTC(void)
 void RTC_C_IRQHandler(void)
 {
  now.sec = RTC_C->TIM0>>0 & 0x00FF;
+ if(state == CLOCK)
+ {
  now.min = RTC_C->TIM0>>8 & 0x00FF;
  now.hour = RTC_C->TIM1>>0 & 0x00FF;
-
+ }
 RTC_flag = 1;
  RTC_C->CTL0 = 0xA510;
 }
@@ -279,13 +359,14 @@ void PORT3_IRQHandler(void)//interrupt function definition
     }
     if(P3 -> IFG & BIT5) // Interrupt for setting the time
        {
-            set.smin = now.min;
-            set.shour = now.hour;
+
             lcdClear();
             printf("SET TIME\n");
             state = TIMESET;
             if(t_time == tOFF)
                    {
+                      set.smin = now.min;
+                      set.shour = now.hour;
                        t_time = tHOUR;
                        lcdClear();
                    }
@@ -383,7 +464,11 @@ void PORT3_IRQHandler(void)//interrupt function definition
 
 
         }
-
+        if(ONOFF == SNOOZE)
+        {
+            ONOFF = OFF;
+            alrm.amin = alrm.amin - 10;
+        }
         lcdClear();
         delay_ms(50);
         lcdClear();
@@ -572,4 +657,123 @@ void lcdClear() {
     lcdWriteCmd(CLEAR);
     delay_ms(10);
 }
+/*
+void T32_INT2_IRQHandler()
+{
 
+
+    TIMER32_2->INTCLR = 1; //Clear interrupt flag so it does not interrupt again immediately.
+    if(breath) { //Provides separation between notes
+        TIMER_A0->CCR[0] = 0; //Set output of TimerA to 0
+        TIMER_A0->CCR[1] = 0;
+        TIMER_A0->CCR[2] = 0;
+        TIMER32_2->LOAD = BREATH_TIME; //Load in breath time to interrupt again
+        breath = 0; //Next Timer32 interrupt is no longer a breath, but is a note
+    }
+    else { //If not a breath (a note)
+        TIMER32_2->LOAD = music_note_sequence[note][1] - 1; //Load into interrupt count down the length of this note
+        if(music_note_sequence[note][0] == REST) { //If note is actually a rest, load in nothing to TimerA
+            TIMER_A0->CCR[0] = 0;
+            TIMER_A0->CCR[1] = 0;
+            TIMER_A0->CCR[2] = 0;
+        }
+        else {
+            TIMER_A0->CCR[0] = 3000000 / music_note_sequence[note][0];
+            TIMER_A0->CCR[1] = 1500000 / music_note_sequence[note][0]; //50% duty cycle
+            TIMER_A0->CCR[2] = TIMER_A0->CCR[0]; //Had this in here for fun with interrupts. Not used right now
+        }
+        note = note + 1; //Next note
+        if(note >= MAX_NOTE) { //Go back to the beginning if at the end
+            note = 0;
+        }
+        breath = 1; //Next time through should be a breath for separation.
+    }
+}
+
+
+void TA0_N_IRQHandler()
+{
+    if(TIMER_A0->CCTL[1] & BIT0) { //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
+    }
+    if(TIMER_A0->CCTL[2] & BIT0) { //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
+    }
+}
+
+void SetupTimer32s()
+{
+    TIMER32_1->CONTROL = 0b11000011; //Sets timer 1 for Enabled, Periodic, No Interrupt, No Prescaler, 32 bit mode, One Shot Mode. See 589 of the reference manual
+    TIMER32_2->CONTROL = 0b11100011; //Sets timer 2 for Enabled, Periodic, With Interrupt, No Prescaler, 32 bit mode, One Shot Mode. See 589 of the reference manual
+    NVIC_EnableIRQ(T32_INT2_IRQn); //Enable Timer32_2 interrupt. Look at msp.h if you want to see what all these are called.
+    TIMER32_2->LOAD = 3000000 - 1; //Set to a count down of 1 second on 3 MHz clock
+    TIMER_A0->CCR[0] = 0; // Turn off timerA to start
+    TIMER_A0->CCTL[1] = 0b0000000011110100; // Setup Timer A0_1 Reset/Set, Interrupt, No Output
+    TIMER_A0->CCR[1] = 0; // Turn off timerA to start
+    TIMER_A0->CCTL[2] = 0b0000000011110100; // Setup Timer A0_2 Reset/Set, Interrupt, No Output
+    TIMER_A0->CCR[2] = 0; // Turn off timerA to start
+    TIMER_A0->CTL = 0b0000001000010100; // Count Up mode using SMCLK, Clears, Clear Interrupt Flag
+    NVIC_EnableIRQ(TA0_N_IRQn); // Enable interrupts for CCTL1=6 (if on)
+    P2->SEL0 |= BIT4; // Setup the P2.4 to be an output for the song. This should drive a sounder.
+    P2->SEL1 &= ~BIT4;
+    P2->DIR |= BIT4;
+}
+
+void EUSCIA0_IRQHandler(void)
+{
+    if (EUSCI_A0->IFG & BIT0)  // Interrupt on the receive line
+    {
+        INPUT_BUFFER[storage_location] = EUSCI_A0->RXBUF; // store the new piece of data at the present location in the buffer
+        EUSCI_A0->IFG &= ~BIT0; // Clear the interrupt flag right away in case new data is ready
+        storage_location++; // update to the next position in the buffer
+        if(storage_location == BUFFER_SIZE) // if the end of the buffer was reached, loop back to the start
+            storage_location = 0;
+    }
+}
+*/
+void readInput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+    // One of the few do/while loops I've written, but need to read a character before checking to see if a \n has been read
+    do
+    {
+        // If a new line hasn't been found yet, but we are caught up to what has been received, wait here for new data
+        while(read_location == storage_location && INPUT_BUFFER[read_location] != '\n');
+        string[i] = INPUT_BUFFER[read_location];  // Manual copy of valid character into "string"
+        INPUT_BUFFER[read_location] = '\0';
+        i++; // Increment the location in "string" for next piece of data
+        read_location++; // Increment location in INPUT_BUFFER that has been read
+        if(read_location == BUFFER_SIZE)  // If the end of INPUT_BUFFER has been reached, loop back to 0
+            read_location = 0;
+    }
+    while(string[i-1] != '\n'); // If a \n was just read, break out of the while loop
+    string[i-1] = '\0'; // Replace the \n with a \0 to end the string when returning this function
+}
+void writeOutput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+    while(string[i] != '\0') {
+        EUSCI_A0->TXBUF = string[i];
+        i++;
+        while(!(EUSCI_A0->IFG & BIT1));
+    }
+}
+
+void setupSerial()
+{
+    P1->SEL0 |=  (BIT2 | BIT3); // P1.2 and P1.3 are EUSCI_A0 RX
+    P1->SEL1 &= ~(BIT2 | BIT3); // and TX respectively.
+    EUSCI_A0->CTLW0  = BIT0; // Disables EUSCI. Default configuration is 8N1
+    EUSCI_A0->CTLW0 |= BIT7; // Connects to SMCLK BIT[7:6] = 10
+    //EUSCI_A0->CTLW0 |= (BIT(15)|BIT(14)|BIT(11));  //BIT15 = Parity, BIT14 = Even, BIT11 = Two Stop Bits
+    // Baud Rate Configuration
+    // 3000000/(16*115200) = 1.628  (3 MHz at 115200 bps is fast enough to turn on over sampling (UCOS = /16))
+    // UCOS16 = 1 (0ver sampling, /16 turned on)
+    // UCBR  = 1 (Whole portion of the divide)
+    // UCBRF = .628 * 16 = 10 (0x0A) (Remainder of the divide)
+    // UCBRS = 3000000/115200 remainder=0.04 -> 0x01 (look up table 22-4)
+    EUSCI_A0->BRW = 19;  // UCBR Value from above
+    EUSCI_A0->MCTLW = 0xAA81; //UCBRS (Bits 15-8) & UCBRF (Bits 7-4) & UCOS16 (Bit 0)
+    EUSCI_A0->CTLW0 &= ~BIT0;  // Enable EUSCI
+    EUSCI_A0->IFG &= ~BIT0;    // Clear interrupt
+    EUSCI_A0->IE |= BIT0;      // Enable interrupt
+    NVIC_EnableIRQ(EUSCIA0_IRQn);
+}
