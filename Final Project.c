@@ -22,27 +22,7 @@
 #define ON      2
 #define SNOOZE  3
 #define Lower_Nibble(x)   P4->OUT = (P4->OUT & 0xF0) + (x & 0x0F)        // This macro if PORT(x) uses the lower 4 pins
-#define C4 261.63
-#define D4 293.66
-#define E4 329.63
-#define F4 349.23
-#define F4SHARP 369.99
-#define G4 392
-#define A4 440
-#define B4 493.88
-#define C5 523.25
-#define D5 587.33
-#define E5 659.25
-#define REST 0
-//Defining the lengths of notes
-#define QUARTER 1000000
-#define QUARTERPLUS 1500000
-#define EIGHTH 500000
-#define HALF 2000000
-#define HALFPLUS 3000000
-#define WHOLE 4000000
-#define BREATH_TIME 50000
-#define MAX_NOTE 100
+
 #define BUFFER_SIZE 100
 char INPUT_BUFFER[BUFFER_SIZE];
 
@@ -58,41 +38,18 @@ void lcdWriteCmd (unsigned char  cmd);          // Send Commands
 void lcdSetText(char * text, int x, int y);     // Write string
 void lcdSetInt (int val,     int x, int y);     // Write integer
 void ports(void);
-void play(void);
 void writeOutput(char *string); // write output charactrs to the serial port
 void readInput(char* string); // read input characters from INPUT_BUFFER that are valid
 void setupSerial(void);
 //Interrupt Function
 void Alarm_Button_Init(void);
 void PORT3_IRQHandler(void);
-
-
+void LEDPWM(int threesec);
+void ALARMON(int loud);
 void configRTC(void);
-/*
-void SetupTimer32s();
-    int note = 0; //The note in the music sequence we are on
-    int breath = 0; //Take a breath after each note. This creates seperation
-float music_note_sequence[][2] = {
 
-                                   {E4,QUARTER},
-                                   {G4,QUARTER},
-                                   {A4,HALF},
-                                   {REST, BREATH_TIME},
-                                   {E4,QUARTER},
-                                   {G4,QUARTER},
-                                   {B4,EIGHTH},
-                                   {A4,HALF},
-                                   {REST, BREATH_TIME},
-                                   {E4,QUARTER},
-                                   {G4,QUARTER},
-                                   {A4,HALF},
-                                   {G4,QUARTER},
-                                   {E4,HALF},
 
-                                   {REST,WHOLE},
-                                   {REST,WHOLE},
-};
-*/
+
 // global struct variable called now
 struct
 {
@@ -120,11 +77,12 @@ uint8_t read_location = 0; // used in the main application to read valid data th
 volatile uint32_t timeout ;
 int ALARM = 0;
 volatile int ONOFF = OFF;
-
+int tspeed = 0;
 enum states{           // Names the states
     CLOCK,
     ALARMSET,
-    TIMESET
+    TIMESET,
+    ALRMON
 };
 
 enum astates{
@@ -145,7 +103,9 @@ int PM = 0;
 int aPM = 0;
 char aAMPM = 'A';
 char AMPM = 'A';
-
+int LIGHT = OFF;
+int i, j;
+int threesec = 0;
 void main(void)
 {
     char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
@@ -154,8 +114,8 @@ void main(void)
     char uhour[30];
     char umin[30];
     char usec[30];
-    P2->DIR |= BIT4;
 
+    LEDPWM(0);
     alrm.amin = 0;
     alrm.ahour = 5;
     ports();    //Initialize ports
@@ -163,7 +123,6 @@ void main(void)
     SysTick_initialization();
     lcdInit();  // Initialize the LCD
     __disable_irq();//disable all interrupts during set-up
-    //SetupTimer32s();
     Alarm_Button_Init();//call button interrupt set-up
     setupSerial();
     configRTC();
@@ -172,36 +131,43 @@ void main(void)
     __enable_irq();//enable interrupts after set up
 
      lcdClear();
-     readInput(string);
 
-            if(string[0] != '\0'){
-
-            if(strcmp(string, "SETTIME"))
-                    {
-                     strcpy(uhour, &string[8]);
-                     now.hour = atoi(uhour);
-                     strcpy(umin, &string[10]);
-                     now.min = atoi(umin);
-                     strcpy(usec, &string[12]);
-                     now.sec = atoi(usec);
-                     AMPM = string[14];
-                    }
-            if(strcmp(string, "SETALARM"))
-            {
-                strcpy(uhour, &string[9]);
-                now.hour = atoi(uhour);
-                strcpy(umin, &string[11]);
-                now.min = atoi(umin);
-                aAMPM = string[13];
-            }
-            }
 
      while (1)
       {
          switch(state){
          case CLOCK:
+             /*
+             readInput(string);
 
+                         if(string[0] != '\0'){
 
+                         if(strcmp(string, "SETTIME"))
+                                 {
+                                  strcpy(uhour, &string[8]);
+                                  RTC_C->TIM1 = atoi(uhour);
+                                  strcpy(umin, &string[10]);
+                                  RTC_C->TIM0 = atoi(umin)<<8;
+                                  strcpy(usec, &string[12]);
+                                  RTC_C->TIM0 = atoi(usec);
+                                  AMPM = string[14];
+                                 }
+                         if(strcmp(string, "SETALARM"))
+                         {
+                             strcpy(uhour, &string[9]);
+                             alrm.ahour = atoi(uhour);
+                             strcpy(umin, &string[11]);
+                             alrm.amin = atoi(umin);
+                             aAMPM = string[13];
+                         }
+                         }
+                         */
+             ALARMON(0);
+             if((now.hour <= alrm.ahour) && (PM == aPM) && (ONOFF == ON | ONOFF == SNOOZE) && 5 == (abs(alrm.amin-now.min)))
+                          {
+                              LIGHT = ON;
+
+                          }
          if (RTC_flag)
               {
                   if(now.hour >= 13 && PM == 0)
@@ -216,13 +182,30 @@ void main(void)
                       AMPM = 'A';
                       PM = 0;
                   }
+                 if(LIGHT == ON)
+                 {
+                      i++;
+                      if(i == 3)
+                      {
+                      threesec++;
+                      LEDPWM(threesec);
+                      i = 0;
+                      }
+                 }
+
                   RTC_flag = 0;
               }
 
-             if(now.hour == alrm.ahour && now.min == alrm.amin && PM == aPM && (ONOFF == ON || ONOFF == SNOOZE))
+
+
+             if(now.hour == alrm.ahour && now.min == alrm.amin && PM == aPM && (ONOFF == ON | ONOFF == SNOOZE))
              {
+                 state = ALRMON;
                  ALARM = 1;
              }
+
+
+
 
 
               sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
@@ -282,6 +265,47 @@ void main(void)
              delay_ms(50);
 
              break;
+         case ALRMON:
+             ALARMON(99);
+                 if (RTC_flag)
+                      {
+                          if(now.hour >= 13 && PM == 0)
+                          {
+                              now.hour = 1;
+                              AMPM = 'P';
+                              PM = 1;
+                          }
+                         if(now.hour >= 13 && PM == 1)
+                          {
+                              now.hour = 1;
+                              AMPM = 'A';
+                              PM = 0;
+                          }
+                          RTC_flag = 0;
+                      }
+                     sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
+                     sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
+
+
+                     lcdSetText(time, 3, 1);
+                     delay_ms(30);
+                     lcdSetText("Alarm", 2, 2);
+                     delay_ms(30);
+
+                     if(ONOFF == OFF)
+                     lcdSetText("OFF", 10, 2);
+
+                     if(ONOFF == ON)
+                     lcdSetText("ON", 10, 2);
+
+                     if(ONOFF == SNOOZE)
+                     lcdSetText("SNOOZE", 10, 2);
+
+                     delay_ms(50);
+                     lcdSetText(alarm, 4, 3);
+                     delay_ms(30);
+
+         break;
       }
       }
 }
@@ -290,19 +314,72 @@ void configRTC(void)
 {
  RTC_C->CTL0 = 0xA510; //Write Code, IE on RTC Ready
  RTC_C->CTL13 = 0x0000;
- RTC_C->TIM0 = 59<<8 | 45;
+ RTC_C->TIM0 = 59<<8 | 50;
  RTC_C->TIM1 = 2<<8 | 4;
 
 }
 
 void RTC_C_IRQHandler(void)
 {
+    /*
+    if(tspeed == 1)
+    {
+        if(now.sec<=59){
+            now.sec = (RTC_C->TIM0>>0 & 0x00FF) + 1;
+            if(now.sec == 60){
+                now.sec = 0;
+                now.min = (RTC_C->TIM0>>8 & 0x00FF) + 1;
+                if(now.min==60){
+                    now.min = 0;
+                    now.hour = (RTC_C->TIM1>>0 & 0x00FF) + 1;
+                    if(now.hour >= 13 && PM == 0)
+                                               {
+                                                   PM = 1;
+                                                   AMPM = 'P';
+                                                   now.hour = 1;
+                                               }
+                                               if(now.hour >= 13 && PM == 1)
+                                               {
+                                                   PM = 0;
+                                                   AMPM = 'A';
+                                                   now.hour = 1;
+                                               }
+                    }
+                }
+            }
+        RTC_C->PS1CTL &= ~(BIT0);
+        }
+
+
+
+
+    if(tspeed == 2)
+    {
+        alrm.amin++;
+        if(alrm.amin >= 60)
+        {
+            alrm.amin = 0;
+            alrm.ahour++;
+            if(alrm.ahour >= 13 && aPM == 0)
+            {
+                aPM = 1;
+                aAMPM = 'P';
+                alrm.ahour = 1;
+            }
+            if(alrm.ahour >= 13 && aPM == 1)
+            {
+                aPM = 0;
+                aAMPM = 'A';
+                alrm.ahour = 1;
+            }
+
+        }
+    }
+    */
  now.sec = RTC_C->TIM0>>0 & 0x00FF;
- if(state == CLOCK)
- {
  now.min = RTC_C->TIM0>>8 & 0x00FF;
  now.hour = RTC_C->TIM1>>0 & 0x00FF;
- }
+
 RTC_flag = 1;
  RTC_C->CTL0 = 0xA510;
 }
@@ -319,19 +396,38 @@ void ports(void)
 
 void Alarm_Button_Init()//function to initialize motor button pin & interrupt
 {
-    P3 -> SEL0 &= ~(BIT0 | BIT5 | BIT6 | BIT7);//GPIO set-up
-    P3 -> SEL1 &= ~(BIT0 | BIT5 | BIT6 | BIT7);
-    P3 -> DIR |= (BIT0 | BIT5 | BIT6 | BIT7);//input
-    P3 -> REN |= (BIT0 | BIT5 | BIT6 | BIT7);//enable resistor
-    P3 -> OUT |= (BIT0 | BIT5 | BIT6 | BIT7);//input defaults to '1'
-    P3 -> IES |= (BIT0 | BIT5 | BIT6 | BIT7);//P1.6 interrupt triggers when it goes from high to low
-    P3 -> IE |= (BIT0 | BIT5 | BIT6 | BIT7);//set interrupt on P1.7
-    P3 -> IFG &= ~(BIT0 | BIT5 | BIT6 | BIT7);//clear flag
+    P3 -> SEL0 &= ~(BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//GPIO set-up
+    P3 -> SEL1 &= ~(BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);
+    P3 -> DIR |= (BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//input
+    P3 -> REN |= (BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//enable resistor
+    P3 -> OUT |= (BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//input defaults to '1'
+    P3 -> IES |= (BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//P1.6 interrupt triggers when it goes from high to low
+    P3 -> IE |= (BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//set interrupt on P1.7
+    P3 -> IFG &= ~(BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//clear flag
+    P2->SEL0 |= (BIT4);
+    P2->SEL1 &= ~(BIT4);
+    P2->DIR |= (BIT4);
+    P5->SEL0 |= BIT6;
+    P5->SEL1 &=~ BIT6;
+    P5->DIR |= BIT6;
 }
 
 void PORT3_IRQHandler(void)//interrupt function definition
 {
+    /*
+    tspeed = 0;
+    if(P3 -> IFG & BIT2)
+        {
+            tspeed = 1;
+            P3 -> IFG &= ~BIT2;
+        }
+    if(P3 -> IFG &= BIT3)
+        {
+           tspeed = 2;
+           P3 -> IFG &= ~BIT3;
 
+        }
+*/
     if(P3 -> IFG & BIT0) //Interrupt for setting the alarm time
     {
 
@@ -377,8 +473,8 @@ void PORT3_IRQHandler(void)//interrupt function definition
                    }
                    else if(t_time == tMIN)
                    {
-                       now.min = set.smin;
-                       now.hour = set.shour;
+                       RTC_C->TIM0 = set.smin<<8;
+                       RTC_C->TIM1 = set.shour;
                        t_time = tOFF;
                        state = CLOCK;
                        lcdClear();
@@ -391,17 +487,25 @@ void PORT3_IRQHandler(void)//interrupt function definition
     {
         lcdClear();
         printf("ON/OFF/UP\n");
-        if(state == CLOCK)
+        if(state == CLOCK | state == ALRMON)
         {
 
 
         if(ONOFF == OFF)
         {
             ONOFF = ON;
+            printf("Alarm On");
+            if(ALARM == 0)
+            {
+                ALARMON(0);
+            }
+
         }
         else if(ONOFF == ON)
         {
             ONOFF = OFF;
+            state = CLOCK;
+            ALARM = 0;
         }
         }
 
@@ -466,8 +570,10 @@ void PORT3_IRQHandler(void)//interrupt function definition
         }
         if(ONOFF == SNOOZE)
         {
+            ALARM = 0;
             ONOFF = OFF;
             alrm.amin = alrm.amin - 10;
+
         }
         lcdClear();
         delay_ms(50);
@@ -533,11 +639,12 @@ void PORT3_IRQHandler(void)//interrupt function definition
                                      }
                             }
 
-                if(ALARM == 1)
+                if(state == ALRMON)
                 {
-                    ALARM = 0;
+                    ALARMON(0);
                     ONOFF = SNOOZE;
                     alrm.amin = alrm.amin + 10;
+                    state = CLOCK;
                 }
 
            delay_ms(50);
@@ -657,65 +764,7 @@ void lcdClear() {
     lcdWriteCmd(CLEAR);
     delay_ms(10);
 }
-/*
-void T32_INT2_IRQHandler()
-{
 
-
-    TIMER32_2->INTCLR = 1; //Clear interrupt flag so it does not interrupt again immediately.
-    if(breath) { //Provides separation between notes
-        TIMER_A0->CCR[0] = 0; //Set output of TimerA to 0
-        TIMER_A0->CCR[1] = 0;
-        TIMER_A0->CCR[2] = 0;
-        TIMER32_2->LOAD = BREATH_TIME; //Load in breath time to interrupt again
-        breath = 0; //Next Timer32 interrupt is no longer a breath, but is a note
-    }
-    else { //If not a breath (a note)
-        TIMER32_2->LOAD = music_note_sequence[note][1] - 1; //Load into interrupt count down the length of this note
-        if(music_note_sequence[note][0] == REST) { //If note is actually a rest, load in nothing to TimerA
-            TIMER_A0->CCR[0] = 0;
-            TIMER_A0->CCR[1] = 0;
-            TIMER_A0->CCR[2] = 0;
-        }
-        else {
-            TIMER_A0->CCR[0] = 3000000 / music_note_sequence[note][0];
-            TIMER_A0->CCR[1] = 1500000 / music_note_sequence[note][0]; //50% duty cycle
-            TIMER_A0->CCR[2] = TIMER_A0->CCR[0]; //Had this in here for fun with interrupts. Not used right now
-        }
-        note = note + 1; //Next note
-        if(note >= MAX_NOTE) { //Go back to the beginning if at the end
-            note = 0;
-        }
-        breath = 1; //Next time through should be a breath for separation.
-    }
-}
-
-
-void TA0_N_IRQHandler()
-{
-    if(TIMER_A0->CCTL[1] & BIT0) { //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
-    }
-    if(TIMER_A0->CCTL[2] & BIT0) { //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
-    }
-}
-
-void SetupTimer32s()
-{
-    TIMER32_1->CONTROL = 0b11000011; //Sets timer 1 for Enabled, Periodic, No Interrupt, No Prescaler, 32 bit mode, One Shot Mode. See 589 of the reference manual
-    TIMER32_2->CONTROL = 0b11100011; //Sets timer 2 for Enabled, Periodic, With Interrupt, No Prescaler, 32 bit mode, One Shot Mode. See 589 of the reference manual
-    NVIC_EnableIRQ(T32_INT2_IRQn); //Enable Timer32_2 interrupt. Look at msp.h if you want to see what all these are called.
-    TIMER32_2->LOAD = 3000000 - 1; //Set to a count down of 1 second on 3 MHz clock
-    TIMER_A0->CCR[0] = 0; // Turn off timerA to start
-    TIMER_A0->CCTL[1] = 0b0000000011110100; // Setup Timer A0_1 Reset/Set, Interrupt, No Output
-    TIMER_A0->CCR[1] = 0; // Turn off timerA to start
-    TIMER_A0->CCTL[2] = 0b0000000011110100; // Setup Timer A0_2 Reset/Set, Interrupt, No Output
-    TIMER_A0->CCR[2] = 0; // Turn off timerA to start
-    TIMER_A0->CTL = 0b0000001000010100; // Count Up mode using SMCLK, Clears, Clear Interrupt Flag
-    NVIC_EnableIRQ(TA0_N_IRQn); // Enable interrupts for CCTL1=6 (if on)
-    P2->SEL0 |= BIT4; // Setup the P2.4 to be an output for the song. This should drive a sounder.
-    P2->SEL1 &= ~BIT4;
-    P2->DIR |= BIT4;
-}
 
 void EUSCIA0_IRQHandler(void)
 {
@@ -728,7 +777,7 @@ void EUSCIA0_IRQHandler(void)
             storage_location = 0;
     }
 }
-*/
+
 void readInput(char *string)
 {
     int i = 0;  // Location in the char array "string" that is being written to
@@ -776,4 +825,20 @@ void setupSerial()
     EUSCI_A0->IFG &= ~BIT0;    // Clear interrupt
     EUSCI_A0->IE |= BIT0;      // Enable interrupt
     NVIC_EnableIRQ(EUSCIA0_IRQn);
+}
+
+void ALARMON(int loud)
+{
+      TIMER_A0->CCR[0] = 30000-1; // PWM Period
+      TIMER_A0->CCTL[1] = OUTMOD_7; // TA1CCR1 output mode = reset/set
+      TIMER_A0->CCR[1] = (loud*300); // TA1CCR1 PWM duty cycle
+      TIMER_A0->CTL = TASSEL_2 | MC_1 | TACLR; // SMCLK, Up Mode, Clear
+}
+
+void LEDPWM(int threesec)
+{
+    TIMER_A2->CCR[1] = 30000-1; // PWM Period
+    TIMER_A2->CCTL[1] = OUTMOD_7; // TA1CCR1 output mode = reset/set
+    TIMER_A2->CCR[1] = (threesec*300); // TA1CCR1 PWM duty cycle
+    TIMER_A2->CTL = TASSEL_2 | MC_1 | TACLR; // SMCLK, Up Mode, Clear
 }
