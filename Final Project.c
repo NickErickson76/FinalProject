@@ -47,7 +47,7 @@ void PORT3_IRQHandler(void);
 void LEDPWM(int threesec);
 void ALARMON(int loud);
 void configRTC(void);
-
+void serialread(void);
 
 
 // global struct variable called now
@@ -95,7 +95,7 @@ enum tstates{
     tHOUR,
     tMIN
 };
-
+int newcomm = 0;
 enum states state = CLOCK;
 enum astates atime = aOFF;
 enum tstates t_time = tOFF;
@@ -106,15 +106,16 @@ char AMPM = 'A';
 int LIGHT = OFF;
 int i, j;
 int threesec = 0;
+char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
+
+char uhour[30];
+char umin[30];
+char usec[30];
 void main(void)
 {
-    char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
+
     char time[30];
     char alarm[30];
-    char uhour[30];
-    char umin[30];
-    char usec[30];
-
     LEDPWM(0);
     alrm.amin = 0;
     alrm.ahour = 5;
@@ -135,33 +136,14 @@ void main(void)
 
      while (1)
       {
+         if(newcomm == 1)
+         {
+             serialread();
+         }
+
          switch(state){
          case CLOCK:
-             /*
-             readInput(string);
 
-                         if(string[0] != '\0'){
-
-                         if(strcmp(string, "SETTIME"))
-                                 {
-                                  strcpy(uhour, &string[8]);
-                                  RTC_C->TIM1 = atoi(uhour);
-                                  strcpy(umin, &string[10]);
-                                  RTC_C->TIM0 = atoi(umin)<<8;
-                                  strcpy(usec, &string[12]);
-                                  RTC_C->TIM0 = atoi(usec);
-                                  AMPM = string[14];
-                                 }
-                         if(strcmp(string, "SETALARM"))
-                         {
-                             strcpy(uhour, &string[9]);
-                             alrm.ahour = atoi(uhour);
-                             strcpy(umin, &string[11]);
-                             alrm.amin = atoi(umin);
-                             aAMPM = string[13];
-                         }
-                         }
-                         */
              ALARMON(0);
              if((now.hour <= alrm.ahour) && (PM == aPM) && (ONOFF == ON | ONOFF == SNOOZE) && 5 == (abs(alrm.amin-now.min)))
                           {
@@ -771,6 +753,9 @@ void EUSCIA0_IRQHandler(void)
     if (EUSCI_A0->IFG & BIT0)  // Interrupt on the receive line
     {
         INPUT_BUFFER[storage_location] = EUSCI_A0->RXBUF; // store the new piece of data at the present location in the buffer
+        if(EUSCI_A0->RXBUF == '\n'){
+            newcomm = 1;
+        }
         EUSCI_A0->IFG &= ~BIT0; // Clear the interrupt flag right away in case new data is ready
         storage_location++; // update to the next position in the buffer
         if(storage_location == BUFFER_SIZE) // if the end of the buffer was reached, loop back to the start
@@ -827,6 +812,42 @@ void setupSerial()
     NVIC_EnableIRQ(EUSCIA0_IRQn);
 }
 
+void serialread(void)
+{
+                 readInput(string);
+
+                             if(string[0] != '\0'){
+
+                             if(string[3] == 'T')
+                                     {
+                                     uhour[0] = string[8];
+                                     uhour[1] = string[9];
+                                     uhour[2] = '\0';
+                                     umin[0] = string[11];
+                                     umin[1] = string[12];
+                                     umin[2] = '\0';
+                                     usec[0] = string[14];
+                                     usec[1] = string[15];
+                                     usec[2] = '\0';
+
+                                     RTC_C->TIM0 = (atoi(umin))<<8 | atoi(usec);
+                                     RTC_C->TIM1 = atoi(uhour);
+                                     }
+                             if(string[3] == 'A')
+                             {
+                                 uhour[0] = string[9];
+                                 uhour[1] = string[10];
+                                 uhour[2] = '\0';
+                                 umin[0] = string[12];
+                                 umin[1] = string[13];
+                                 umin[2] = '\0';
+
+                                 alrm.ahour = atoi(uhour);
+                                 alrm.min = atoi(umin);
+                             }
+                             }
+
+}
 void ALARMON(int loud)
 {
       TIMER_A0->CCR[0] = 30000-1; // PWM Period
