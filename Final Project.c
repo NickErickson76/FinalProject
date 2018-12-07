@@ -1,7 +1,7 @@
 
 // Name: Nick Erickson & Jack Churchill
-// Desciption: This code controls a motor, servo, and LEDs through a keypad
-// Date : 10/31/2018
+// Desciption: This is code for an alarm clock connected to an LCD screen and uses buttons and serial ports to change the time
+// Date : 12/07/2018
 // Class: EGR 226 − 902
 // Prof: S.  Zuidema
 
@@ -27,7 +27,7 @@
 char INPUT_BUFFER[BUFFER_SIZE];
 
 // Systick and LCD Initialization functions
-void SysTick_initialization(void);
+void SysTick_initialization(void);              // Initialize Systick
 void delay_ms(volatile uint32_t ms_delay);
 void delay_us(volatile uint32_t us_delay);
 void lcdInit ();                                // Clear LCD
@@ -58,12 +58,14 @@ uint8_t min;
 uint8_t hour;
 } now;
 
+//Global struct variable called set (Used for setting time)
 struct
 {
     uint8_t smin;
     uint8_t shour;
 } set;
 
+//Global stuct variable called alrm
 struct
 {
 uint8_t amin;
@@ -74,36 +76,36 @@ uint8_t RTC_flag = 0;
 uint8_t storage_location = 0; // used in the interrupt to store new data
 uint8_t read_location = 0; // used in the main application to read valid data that hasn't been read yet
 
-volatile uint32_t timeout ;
-int ALARM = 0;
+volatile uint32_t timeout;
+int ALARM = 0;  // Variable for knowing if the alarm is on or off
 volatile int ONOFF = OFF;
 int tspeed = 0;
-enum states{           // Names the states
+enum states{           // Main states
     CLOCK,
     ALARMSET,
     TIMESET,
     ALRMON
 };
 
-enum astates{
+enum astates{           // Alarm setting states
     aOFF,
     alHOUR,
     alMIN
 };
-enum tstates{
+enum tstates{           // Time setting states
     tOFF,
     tHOUR,
     tMIN
 };
 int newcomm = 0;
-enum states state = CLOCK;
-enum astates atime = aOFF;
-enum tstates t_time = tOFF;
-int PM = 0;
-int aPM = 0;
-char aAMPM = 'A';
-char AMPM = 'A';
-int LIGHT = OFF;
+enum states state = CLOCK;  // Sets main state to CLOCK
+enum astates atime = aOFF;// Sets Alarm set state to Off
+enum tstates t_time = tOFF;// Sets time set state to off
+int PM = 0;                 // Variable for knowing if the time is AM or PM
+int aPM = 0;                // Variable for knowing if the alarm is AM or PM
+char aAMPM = 'A';           // Start with clock in AM
+char AMPM = 'A';            //Start with alarm in am
+int LIGHT = OFF;            //Start with lights off
 int i, j;
 int threesec = 0;
 char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
@@ -111,6 +113,8 @@ char string[BUFFER_SIZE]; // Creates local char array to store incoming serial c
 char uhour[30];
 char umin[30];
 char usec[30];
+
+//The main function initializes the program, holds the main state machine and prints to the LCD
 void main(void)
 {
 
@@ -136,35 +140,37 @@ void main(void)
 
      while (1)
       {
-         if(newcomm == 1)
+         if(newcomm == 1) //Check for Uart reading
          {
              serialread();
          }
 
          switch(state){
+
+         //The Clock state prints the current time to the LCD and checks for both lights and alarm
          case CLOCK:
 
-             ALARMON(0);
-             if((now.hour <= alrm.ahour) && (PM == aPM) && (ONOFF == ON | ONOFF == SNOOZE) && 5 == (abs(alrm.amin-now.min)))
+             ALARMON(0);    // Sets lights to off
+             if((now.hour <= alrm.ahour) && (PM == aPM) && (ONOFF == ON | ONOFF == SNOOZE) && 5 == (abs(alrm.amin-now.min)))//checks to see if lights should be turned on
                           {
                               LIGHT = ON;
 
                           }
-         if (RTC_flag)
+         if (RTC_flag)//Checks for the RTC flag
               {
-                  if(now.hour >= 13 && PM == 0)
+                  if(now.hour >= 13 && PM == 0) // Sets clock to pm
                   {
                       now.hour = 1;
                       AMPM = 'P';
                       PM = 1;
                   }
-                 if(now.hour >= 13 && PM == 1)
+                 if(now.hour >= 13 && PM == 1) // Sets clock to am
                   {
                       now.hour = 1;
                       AMPM = 'A';
                       PM = 0;
                   }
-                 if(LIGHT == ON)
+                 if(LIGHT == ON) // Increments the duty cycle of the LED pwm by one every three seconds
                  {
                       i++;
                       if(i == 3)
@@ -175,12 +181,12 @@ void main(void)
                       }
                  }
 
-                  RTC_flag = 0;
+                  RTC_flag = 0; // Resets the RTC flag
               }
 
 
 
-             if(now.hour == alrm.ahour && now.min == alrm.amin && PM == aPM && (ONOFF == ON | ONOFF == SNOOZE))
+             if(now.hour == alrm.ahour && now.min == alrm.amin && PM == aPM && (ONOFF == ON | ONOFF == SNOOZE)) // Checks to see if the alarm should turn on
              {
                  state = ALRMON;
                  ALARM = 1;
@@ -193,7 +199,7 @@ void main(void)
               sprintf(time, "%d:%02d:%02d %cM",now.hour, now.min, now.sec, AMPM);
               sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
 
-
+              //This section prints everything to the LCD
               lcdSetText(time, 3, 1);
               delay_ms(30);
               lcdSetText("Alarm", 2, 2);
@@ -213,6 +219,7 @@ void main(void)
               delay_ms(30);
              break;
 
+             // This state prints the alarm to the screen as its being set
          case ALARMSET:
 
             sprintf(alarm, "%d:%02d %cM",alrm.ahour, alrm.amin, aAMPM);
@@ -231,6 +238,8 @@ void main(void)
             delay_ms(50);
 
              break;
+
+             //This State prints the time as it is being set
          case TIMESET:
              delay_ms(10);
              sprintf(time, "%d:%02d %cM",set.shour, set.smin, AMPM);
@@ -247,6 +256,8 @@ void main(void)
              delay_ms(50);
 
              break;
+
+             //This turns on the alarm and does everything that the clock state does
          case ALRMON:
              ALARMON(99);
                  if (RTC_flag)
@@ -292,72 +303,20 @@ void main(void)
       }
 }
 
+// This function sets up the RTC
 void configRTC(void)
 {
- RTC_C->CTL0 = 0xA510; //Write Code, IE on RTC Ready
+ RTC_C->CTL0 = 0xA510;
  RTC_C->CTL13 = 0x0000;
+ //Sets the initial times
  RTC_C->TIM0 = 59<<8 | 50;
  RTC_C->TIM1 = 2<<8 | 4;
 
 }
 
+//This function increments the time and sets the time variables
 void RTC_C_IRQHandler(void)
 {
-    /*
-    if(tspeed == 1)
-    {
-        if(now.sec<=59){
-            now.sec = (RTC_C->TIM0>>0 & 0x00FF) + 1;
-            if(now.sec == 60){
-                now.sec = 0;
-                now.min = (RTC_C->TIM0>>8 & 0x00FF) + 1;
-                if(now.min==60){
-                    now.min = 0;
-                    now.hour = (RTC_C->TIM1>>0 & 0x00FF) + 1;
-                    if(now.hour >= 13 && PM == 0)
-                                               {
-                                                   PM = 1;
-                                                   AMPM = 'P';
-                                                   now.hour = 1;
-                                               }
-                                               if(now.hour >= 13 && PM == 1)
-                                               {
-                                                   PM = 0;
-                                                   AMPM = 'A';
-                                                   now.hour = 1;
-                                               }
-                    }
-                }
-            }
-        RTC_C->PS1CTL &= ~(BIT0);
-        }
-
-
-
-
-    if(tspeed == 2)
-    {
-        alrm.amin++;
-        if(alrm.amin >= 60)
-        {
-            alrm.amin = 0;
-            alrm.ahour++;
-            if(alrm.ahour >= 13 && aPM == 0)
-            {
-                aPM = 1;
-                aAMPM = 'P';
-                alrm.ahour = 1;
-            }
-            if(alrm.ahour >= 13 && aPM == 1)
-            {
-                aPM = 0;
-                aAMPM = 'A';
-                alrm.ahour = 1;
-            }
-
-        }
-    }
-    */
  now.sec = RTC_C->TIM0>>0 & 0x00FF;
  now.min = RTC_C->TIM0>>8 & 0x00FF;
  now.hour = RTC_C->TIM1>>0 & 0x00FF;
@@ -376,7 +335,7 @@ void ports(void)
 
 
 
-void Alarm_Button_Init()//function to initialize motor button pin & interrupt
+void Alarm_Button_Init()//function to initialize the buttons, LEDs and Speaker
 {
     P3 -> SEL0 &= ~(BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);//GPIO set-up
     P3 -> SEL1 &= ~(BIT0 | BIT2 | BIT3 | BIT5 | BIT6 | BIT7);
@@ -396,20 +355,7 @@ void Alarm_Button_Init()//function to initialize motor button pin & interrupt
 
 void PORT3_IRQHandler(void)//interrupt function definition
 {
-    /*
-    tspeed = 0;
-    if(P3 -> IFG & BIT2)
-        {
-            tspeed = 1;
-            P3 -> IFG &= ~BIT2;
-        }
-    if(P3 -> IFG &= BIT3)
-        {
-           tspeed = 2;
-           P3 -> IFG &= ~BIT3;
 
-        }
-*/
     if(P3 -> IFG & BIT0) //Interrupt for setting the alarm time
     {
 
@@ -420,11 +366,13 @@ void PORT3_IRQHandler(void)//interrupt function definition
         {
             atime = alHOUR;
             lcdClear();
+            delay_ms(50);
         }
         else if(atime == alHOUR)
         {
             atime = alMIN;
             lcdClear();
+            delay_ms(50);
         }
         else if(atime == alMIN)
         {
@@ -447,11 +395,13 @@ void PORT3_IRQHandler(void)//interrupt function definition
                       set.shour = now.hour;
                        t_time = tHOUR;
                        lcdClear();
+                       delay_ms(50);
                    }
                    else if(t_time == tHOUR)
                    {
                        t_time = tMIN;
                        lcdClear();
+
                    }
                    else if(t_time == tMIN)
                    {
@@ -465,7 +415,7 @@ void PORT3_IRQHandler(void)//interrupt function definition
            P3 -> IFG &= ~BIT5;//clear flag
        }
 
-    if(P3 -> IFG & BIT6)//conditional to check if button on P1.6 has been pressed
+    if(P3 -> IFG & BIT6)//Button interrupt for Turning on and off the alarm and incrementing the alarm and time when they are being set
     {
         lcdClear();
         printf("ON/OFF/UP\n");
@@ -562,7 +512,7 @@ void PORT3_IRQHandler(void)//interrupt function definition
         lcdClear();
         P3 -> IFG &= ~BIT6;//clear flag
     }
-    if(P3 -> IFG & BIT7)//conditional to check if button on P1.6 has been pressed
+    if(P3 -> IFG & BIT7)//Button interrupt for Snoozing the alarm and decrementing the alarm and time when they are being set
        {
             printf("SNOOZE/DOWN\n");
 
@@ -812,13 +762,15 @@ void setupSerial()
     NVIC_EnableIRQ(EUSCIA0_IRQn);
 }
 
+
+//This function reads the string obtained from uart
 void serialread(void)
 {
                  readInput(string);
 
                              if(string[0] != '\0'){
 
-                             if(string[3] == 'T')
+                             if(string[3] == 'T') // takes the set time and sets the clock
                                      {
                                      uhour[0] = string[8];
                                      uhour[1] = string[9];
@@ -833,7 +785,7 @@ void serialread(void)
                                      RTC_C->TIM0 = (atoi(umin))<<8 | atoi(usec);
                                      RTC_C->TIM1 = atoi(uhour);
                                      }
-                             if(string[3] == 'A')
+                             if(string[3] == 'A') // takes the time and sets the alarm
                              {
                                  uhour[0] = string[9];
                                  uhour[1] = string[10];
@@ -843,11 +795,12 @@ void serialread(void)
                                  umin[2] = '\0';
 
                                  alrm.ahour = atoi(uhour);
-                                 alrm.min = atoi(umin);
+                                 alrm.amin = atoi(umin);
                              }
                              }
 
 }
+
 void ALARMON(int loud)
 {
       TIMER_A0->CCR[0] = 30000-1; // PWM Period
